@@ -1,0 +1,86 @@
+# =====================================================================
+#  mysql-it profile - integration tests that REQUIRE real MySQL
+# =====================================================================
+#
+# This profile exists for exactly one reason: some properties of this
+# application are properties of the DATABASE, not of the Java code, and H2
+# cannot express them.
+#
+# The one that prompted it is row-level blocking. H2 in MySQL mode does not
+# block a second concurrent `SELECT ... FOR UPDATE` on the same row, so two
+# transactions can read the same stock value at the same moment. Measured
+# with plain JDBC, outside Spring:
+#
+#     H2:    A stock=0 lock=14ms   B stock=1 lock=12ms   FINAL stock = -1
+#     MySQL: A SOLD  B REFUSED (stock=0)                 FINAL stock = 0
+#
+# The application code is correct on both; only MySQL proves it.
+#
+# ---------------------------------------------------------------------
+#  How to run it
+# ---------------------------------------------------------------------
+#
+#     mvn -o test -Dtest=OrderConcurrencyTest \
+#         -Dspring.profiles.active=mysql-it -DDB_PASSWORD=...
+#
+# or set the environment variables DB_PASSWORD / DB_URL and activate the
+# profile however you prefer. The schema must already exist:
+#
+#     mysql -uroot -p < db/schema.sql
+#
+# NOTE this profile does NOT set `ddl-auto: validate` from scratch - it
+# inherits from application.yml, which is the point. These tests run against
+# the real schema, so an entity that disagrees with it fails here. That is
+# the check `ddl-auto: validate` exists for and the one the H2 profile
+# deliberately cannot perform.
+# ---------------------------------------------------------------------
+
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:mysql://localhost:3306/ecommerce_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&characterEncoding=utf8}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:root}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    # validate, inherited deliberately: this is the profile that CAN check the
+    # entities against the real schema, so it must.
+    hibernate:
+      ddl-auto: validate
+
+  # No seeding. These tests build their own fixtures, and a seeded database
+  # would add rows that make counts meaningless.
+  sql:
+    init:
+      mode: never
+
+# Seeding off, as in the unit-test profile: each test's fixture is the whole
+# population, so "exactly one order exists" means exactly that.
+app:
+  seed:
+    enabled: false
+  jwt:
+    secret: ${JWT_SECRET:mysql-it-test-secret-key-long-enough-for-hs256-signing}
+    expiration-ms: 3600000
+    issuer: https://test.ecommerce.local
+
+logging:
+  level:
+    # Set SQL_LOG=DEBUG (any non-null value) to see every statement this profile
+    # issues. It is off by default because the concurrency test's own log output is
+    # what you read when it fails, and 200 lines of Hibernate noise buried it the
+    # first time this test failed.
+    #
+    #     mvn -o test -Dtest=OrderConcurrencyTest \
+    #         -Dspring.profiles.active=mysql-it -DDB_PASSWORD=... -DSQL_LOG=on
+    #
+    root: WARN
+    com.shop.ecommerce: INFO
+    org.hibernate.tool.schema: WARN
+    # org.hibernate.SQL and the bind-parameter logger are the pair that matter:
+    # SQL alone tells you a query ran, the bind logger tells you WHICH ids it used
+    # and, for the locking query, whether `for update` was appended at all.
+    org.hibernate.SQL: ${SQL_LOG:OFF}
+    org.hibernate.orm.jdbc.bind: ${SQL_LOG:OFF}
+    # Hibernate's slow-query / lock-acquisition traces land here.
+    org.hibernate.engine.internal.StatisticalLoggingSessionEventListener: ${SQL_LOG:OFF}

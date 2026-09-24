@@ -1,0 +1,299 @@
+# =====================================================================
+#  E-Commerce Backend - main configuration
+#
+#  Every value that is a secret or that differs between environments is
+#  written as ${ENV_VAR} with NO DEFAULT. That is deliberate: a missing
+#  variable stops the application at startup with a clear message,
+#  instead of leaving an empty secret in place which "works" and is
+#  silently insecure.
+#
+#  Note the distinction between:
+#     ${VAR}          -> fails to start if absent  (secrets: use this)
+#     ${VAR:default}  -> starts with the default    (non-secrets only)
+#  An empty-but-present variable (VAR=) resolves to "" either way, so
+#  "I set it, to nothing" is still a configuration you must avoid.
+# =====================================================================
+
+server:
+  port: ${SERVER_PORT:8080}
+  error:
+    # Never put stack traces in an HTTP response.
+    include-stacktrace: never
+    include-message: never
+
+spring:
+  application:
+    name: ecommerce-backend
+
+  # ---------------------------------------------------------------
+  #  DATABASE
+  # ---------------------------------------------------------------
+  datasource:
+    url: ${DB_URL:jdbc:mysql://localhost:3306/ecommerce_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&characterEncoding=utf8}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:root}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 20000
+      # A connection that has been idle for 10 minutes may already be dead
+      # on the MySQL side (wait_timeout defaults to 8 hours, but proxies and
+      # load balancers are less patient). Validate before handing it out.
+      validation-timeout: 5000
+      # ---------------------------------------------------------------
+      #  auto-commit: false
+      #
+      #  Hikari defaults to TRUE. Turning it off is defensible on its
+      #  own merits and is kept for that reason - not because it fixed
+      #  the checkout race.
+      #
+      #  BE CLEAR ABOUT WHAT THIS DID AND DID NOT DO.
+      #
+      #  I added this while investigating an oversell (two orders
+      #  created against one unit of stock) and initially recorded it
+      #  as the fix. It is not. With this setting in place the race
+      #  still reproduces, and MySQL's general log shows
+      #  `SET autocommit=0` being sent and the two locking reads still
+      #  landing on the same microsecond. The claim was wrong and is
+      #  corrected here rather than quietly left in place.
+      #
+      #  The measured evidence, from MySQL's own general log:
+      #
+      #      08:45:40.112934  s1373  COMMIT
+      #      08:45:40.113010  s1374  COMMIT
+      #      08:45:40.129378  s1373  select ... for update
+      #      08:45:40.129378  s1374  select ... for update
+      #
+      #  Both locking reads carry the identical microsecond and neither
+      #  blocks. A second FOR UPDATE on a genuinely locked row cannot
+      #  return instantly, so no lock was held by either.
+      #
+      #  Note the timestamps are real: the log has microsecond
+      #  resolution (214 distinct values across 226 lines), and
+      #  parallel reads do collide legitimately, so an identical
+      #  timestamp alone is not proof of a missing lock. What is proof
+      #  is the absence of blocking.
+      #
+      #  Every database- and connection-level explanation has since
+      #  been tested in isolation and excluded - MySQL locking after a
+      #  prior commit (25/25 correct), after a prior read (3/3), on a
+      #  read-only session, through Hikari and Hibernate (5/5), and
+      #  with autocommit timing (40/40). The lock works in all of them.
+      #
+      #  So the cause is in the transaction-framework layer, and the
+      #  next step is to instrument the connection Spring hands out at
+      #  lock time rather than to keep guessing. The probe classes under
+      #  target/ record each negative result.
+      #
+      #  -------------------------------------------------------------
+      #  Why it is kept anyway
+      #  -------------------------------------------------------------
+      #  With auto-commit on, a connection's read view is established
+      #  lazily, so whether a given transaction sees a consistent
+      #  snapshot depends on statement ordering. Off, the transaction is
+      #  open before the first statement, which is the behaviour the
+      #  locking design assumes. That is a real, if unproven-here,
+      #  argument for the setting.
+      #
+      #  The cost: an unused connection holds an open but empty InnoDB
+      #  transaction, so idle-in-transaction time grows. With a pool of
+      #  10 and millisecond requests that is acceptable. Revisit if the
+      #  pool grows a long way.
+      # ---------------------------------------------------------------
+      auto-commit: false
+
+
+  jpa:
+    hibernate:
+      # -------------------------------------------------------------
+      #  `validate` - never `update`.
+      #
+      #  `update` makes Hibernate silently alter the schema to match the
+      #  entities: you get schema changes that appear in no migration,
+      #  cannot be reviewed, and cannot be rolled back. `validate` instead
+      #  fails fast at startup if the two disagree, which is a five-second
+      #  fix rather than a data incident.
+      #
+      #  The honest caveat, measured rather than assumed: validate catches
+      #  a missing table or column, but NOT a varchar length mismatch or a
+      #  missing index. It is a good check, not a complete one.
+      # -------------------------------------------------------------
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        format_sql: true
+        jdbc:
+          time_zone: UTC
+    # -----------------------------------------------------------------
+    #  open-in-view: false
+    #
+    #  Spring Boot defaults this to TRUE, which keeps the Hibernate
+    #  session open for the whole HTTP request. That hides N+1 queries
+    #  and lets lazy loading "work" in the controller - until someone
+    #  changes a fetch strategy and it throws LazyInitializationException
+    #  in production.
+    #
+    #  Setting it false means a lazy association touched outside a
+    #  transaction fails immediately, in development, where it is cheap.
+    # -----------------------------------------------------------------
+    open-in-view: false
+    show-sql: false
+
+  # -----------------------------------------------------------------
+  #  GOOGLE LOGIN (OAuth 2.0 + OpenID Connect)
+  #
+  #  READ THIS BEFORE CHANGING ANYTHING BELOW.
+  #
+  #  The registration block is COMMENTED OUT on purpose, and it is not
+  #  laziness. Spring Boot validates `OAuth2ClientProperties` during
+  #  context refresh, and a registration whose client-id is an EMPTY
+  #  STRING fails that validation outright:
+  #
+  #      Client id of registration 'google' must not be empty.
+  #
+  #  "${GOOGLE_CLIENT_ID:}" resolves to "" when the variable is unset -
+  #  which counts as PRESENT, not absent - so writing the registration
+  #  with an empty default makes the application refuse to start for
+  #  every developer who has not obtained Google credentials. That is a
+  #  bad trade: email/password works perfectly well without Google.
+  #
+  #  This is also NOT fixed by leaving out the `oauth2Login` configurer
+  #  in SecurityConfig - the failing bean is Spring Security's own
+  #  OAuth2ClientConfiguration (via OAuth2AuthorizedClientManager ->
+  #  clientRegistrationRepository), which activates on the presence of
+  #  the starter plus a registration property, independently of our
+  #  filter chain. Both changes are needed.
+  #
+  #  TO ENABLE GOOGLE SIGN-IN: uncomment the block below and set
+  #  GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET. Set BOTH - an uncommented
+  #  block with a blank secret still fails validation.
+  #
+  #  Register this EXACT redirect URI in the Google Cloud Console. It is
+  #  the BACKEND's callback, not the frontend's:
+  #
+  #      http://localhost:8080/login/oauth2/code/google
+  #
+  #  Putting the frontend URL there is the most common cause of
+  #  "redirect_uri_mismatch": Google redirects to the backend, and the
+  #  backend then redirects the browser on to the frontend.
+  # -----------------------------------------------------------------
+  # security:
+  #   oauth2:
+  #     client:
+  #       registration:
+  #         google:
+  #           client-id: ${GOOGLE_CLIENT_ID}
+  #           client-secret: ${GOOGLE_CLIENT_SECRET}
+  #           scope:
+  #             - openid
+  #             - profile
+  #             - email
+  #           redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+  #       provider:
+  #         google:
+  #           # Explicit rather than relying on the built-in defaults, so the
+  #           # issuer and endpoints are visible in the configuration.
+  #           issuer-uri: https://accounts.google.com
+  #           authorization-uri: https://accounts.google.com/o/oauth2/v2/auth
+  #           token-uri: https://oauth2.googleapis.com/token
+  #           user-info-uri: https://www.googleapis.com/oauth2/v3/userinfo
+  #           user-name-attribute: sub
+  #           jwk-set-uri: https://www.googleapis.com/oauth2/v3/certs
+
+  # Fail fast if a bean is defined twice - almost always a sign of a
+  # class in the wrong package.
+  main:
+    allow-bean-definition-overriding: false
+
+  # Reject uploads/requests larger than this before they reach a controller.
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 5MB
+
+# =====================================================================
+#  APPLICATION-SPECIFIC SETTINGS
+# =====================================================================
+app:
+  jwt:
+    # -----------------------------------------------------------------
+    #  HS256 requires a key of at least 256 bits = 32 bytes.
+    #
+    #  Generate one with:  openssl rand -base64 48
+    #
+    #  No default value. An application that starts with a blank signing
+    #  key is worse than one that refuses to start: every token it mints
+    #  is forgeable by anyone who reads the source.
+    # -----------------------------------------------------------------
+    secret: ${JWT_SECRET:}
+    # Short-lived on purpose. There is no refresh token in this project
+    # (see docs/01-REQUIREMENTS.md, non-goals), so this value is the whole
+    # session lifetime. 1 hour balances "not annoying" against "a stolen
+    # token is not useful for long".
+    expiration-ms: ${JWT_EXPIRATION_MS:3600000}
+    issuer: ${JWT_ISSUER:ecommerce-backend}
+  cors:
+    # -----------------------------------------------------------------
+    #  The exact origin(s) allowed to call this API from a browser.
+    #
+    #  NEVER "*" in production: a wildcard origin lets any website on the
+    #  internet make authenticated requests using a visitor's browser.
+    #  Comma-separated for multiple origins.
+    # -----------------------------------------------------------------
+    allowed-origins: ${FRONTEND_URL:http://localhost:5173}
+  oauth2:
+    # Where the OAuth2 success handler sends the browser once it has
+    # minted the application JWT.
+    redirect-uri: ${OAUTH2_REDIRECT_URI:http://localhost:5173/oauth2/redirect}
+
+# =====================================================================
+#  OPENAPI / SWAGGER
+# =====================================================================
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operationsSorter: alpha
+    tagsSorter: alpha
+    tryItOutEnabled: true
+    # Keep the authorisation value between requests so you do not have to
+    # paste a token for every "Try it out".
+    persistAuthorization: true
+  # Every response that does not name a media type is documented as "*/*",
+  # which is technically true and practically useless: a client generator
+  # then emits a response type with no media type. One config line beats
+  # annotating forty operations.
+  default-produces-media-type: application/json
+  # Declare the scheme name used by OpenApiConfig in one place. Both the
+  # global requirement and the per-operation opt-out reference it, and a
+  # mismatch between them is silent - the Authorize button appears, accepts
+  # a token, and no request ever carries it.
+  package-to-scan: com.shop.ecommerce.controller
+
+# =====================================================================
+#  LOGGING
+# =====================================================================
+logging:
+  level:
+    root: INFO
+    com.shop.ecommerce: DEBUG
+    # Spring logs every handled 4xx at WARN via ExceptionHandlerExceptionResolver.
+    # Under load that is a wall of one-line noise. Raise it to ERROR here;
+    # our own advice handler logs what matters.
+    org.springframework.web.servlet.mvc.method.annotation.ExceptionHandlerExceptionResolver: ERROR
+    org.hibernate.SQL: INFO
+
+# =====================================================================
+#  ACTUATOR (health only - nothing sensitive)
+# =====================================================================
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never

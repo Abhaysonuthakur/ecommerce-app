@@ -1,0 +1,64 @@
+# =============================================================================
+# Aurora Store - monorepo root .gitignore
+# =============================================================================
+# Grouped by why each rule exists, because a gitignore nobody understands is a
+# gitignore somebody deletes.
+# -----------------------------------------------------------------------------
+
+# --- Secrets -----------------------------------------------------------------
+# Never commit real credentials. The .env.example files ARE committed - they
+# document every variable and carry placeholders only.
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# --- Java / Maven ------------------------------------------------------------
+target/
+!.mvn/wrapper/maven-wrapper.jar
+*.class
+*.jar
+*.war
+!.mvn/wrapper/*.jar
+.mvn/timing.properties
+
+# --- Node / Vite -------------------------------------------------------------
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.local
+
+# --- IDE ---------------------------------------------------------------------
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/*
+!.vscode/extensions.json
+.settings/
+.project
+.classpath
+*.swp
+
+# --- OS ----------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Logs and temporary output ----------------------------------------------
+*.log
+logs/
+npm-debug.log*
+yarn-error.log*
+*.tmp
+*.bak
+
+# --- Local verification artefacts -------------------------------------------
+# Test runs write reports and probe output here. Useful locally, noise in a
+# diff.
+surefire-reports/
+failsafe-reports/
+*.dump
+*.dumpstream
+hs_err_pid*

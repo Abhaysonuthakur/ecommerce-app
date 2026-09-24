@@ -1,0 +1,275 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+        spring-boot-starter-parent gives us three things:
+          1. Dependency management - hundreds of libraries pinned to versions the
+             Spring team tested together. That is why almost nothing below carries
+             a <version>.
+          2. Plugin management - compiler, surefire, jar are pre-configured.
+          3. Executable-jar repackaging so `java -jar` works.
+
+        Boot 3.5.16 rather than 4.x: 3.5.x is the current stable line requiring
+        Java 17, which is what is installed here. Boot 4 moves springdoc to 3.x
+        and splits autoconfiguration into per-technology modules - a different
+        stack, not a version bump.
+    -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.5.16</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.shop</groupId>
+    <artifactId>ecommerce-backend</artifactId>
+    <version>1.0.0</version>
+    <name>E-Commerce Backend</name>
+    <description>Professional e-commerce REST API - Spring Boot, JPA, Security, JWT, OAuth2/OIDC</description>
+
+    <properties>
+        <java.version>17</java.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+        <!--
+            Libraries Boot does NOT manage need an explicit version, and every
+            pin lives in this one block so a bump is a one-line diff.
+
+            The versions below were resolved empirically, not remembered:
+              jjwt     0.12.7   (0.12.x renamed the parser API)
+              springdoc 2.8.13  (2.8.x targets Boot 3.5.x; 3.x targets Boot 4)
+              mapstruct 1.6.3
+        -->
+        <jjwt.version>0.12.7</jjwt.version>
+        <springdoc.version>2.8.13</springdoc.version>
+        <mapstruct.version>1.6.3</mapstruct.version>
+        <lombok-mapstruct-binding.version>0.2.0</lombok-mapstruct-binding.version>
+    </properties>
+
+    <dependencies>
+
+        <!-- ============================================================
+             WEB - Spring MVC + embedded Tomcat + Jackson.
+             ============================================================ -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!-- ============================================================
+             JPA / HIBERNATE - entities, repositories, transactions.
+             ============================================================ -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+
+        <!-- ============================================================
+             SECURITY - authentication + authorization.
+             ============================================================ -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+
+        <!--
+            OAUTH2 CLIENT - the half of Spring Security that speaks OAuth 2.0
+            and OpenID Connect. This is what makes "Sign in with Google"
+            possible without hand-rolling the authorization-code exchange.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-oauth2-client</artifactId>
+        </dependency>
+
+        <!--
+            VALIDATION - Jakarta Bean Validation (@NotBlank, @Email, @Positive).
+            Note: Boot 2.3+ no longer includes this in starter-web, so it must
+            be declared explicitly or every @Valid silently does nothing.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+
+        <!-- ============================================================
+             MYSQL DRIVER
+             Boot 3.5.16 manages com.mysql:mysql-connector-j and resolves it
+             to 9.7.0 - NOT the 8.x that most tutorials assume. Verified with
+             `mvn dependency:tree` rather than guessed.
+             ============================================================ -->
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- ============================================================
+             JWT - three artifacts, deliberately split:
+               jjwt-api       compile against interfaces (stable)
+               jjwt-impl      the implementation (runtime only)
+               jjwt-jackson   JSON serialisation of claims (runtime only)
+             Depending on jjwt-api alone keeps the implementation out of
+             compile scope, so nothing can accidentally couple to it.
+             ============================================================ -->
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-api</artifactId>
+            <version>${jjwt.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-impl</artifactId>
+            <version>${jjwt.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-jackson</artifactId>
+            <version>${jjwt.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- ============================================================
+             SWAGGER / OPENAPI - /swagger-ui.html and /v3/api-docs
+             ============================================================ -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>${springdoc.version}</version>
+        </dependency>
+
+        <!-- ============================================================
+             MAPPING - MapStruct generates entity<->DTO converters at
+             compile time (no reflection at runtime).
+             ============================================================ -->
+        <dependency>
+            <groupId>org.mapstruct</groupId>
+            <artifactId>mapstruct</artifactId>
+            <version>${mapstruct.version}</version>
+        </dependency>
+
+        <!--
+            LOMBOK - @Getter/@Setter/@Builder. Compile-time only; it does not
+            ship in the jar.
+
+            IMPORTANT: we deliberately do NOT use @Data on any entity. Its
+            generated equals/hashCode recurse through bidirectional JPA
+            associations, and its toString pulls lazy collections. Both are
+            production bugs waiting for the first log statement.
+        -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- ============================================================
+             TESTING
+             ============================================================ -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
+            H2 - used ONLY for the fast unit-ish test profile. H2 in MySQL
+            mode is an approximation, not MySQL: it does NOT enforce MySQL
+            CHECK constraints, so it cannot prove the schema. The schema is
+            proven separately by db/constraint-test.sql against read MySQL.
+            Both are needed; neither substitutes for the other.
+        -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+    </dependencies>
+
+    <build>
+        <plugins>
+
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <annotationProcessorPaths>
+                        <!--
+                            ORDER MATTERS, and this is the single most common
+                            MapStruct failure.
+
+                            Lombok must run BEFORE MapStruct. MapStruct reads
+                            the entity's getters/setters to generate its
+                            implementation; if Lombok has not produced them
+                            yet, MapStruct sees a class with no accessors and
+                            generates an implementation whose methods do
+                            NOTHING - it compiles, it injects, and it returns
+                            objects full of nulls, with no warning anywhere.
+
+                            lombok-mapstruct-binding is what declares that
+                            ordering. Removing it silently breaks every mapper.
+                        -->
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>${lombok.version}</version>
+                        </path>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok-mapstruct-binding</artifactId>
+                            <version>${lombok-mapstruct-binding.version}</version>
+                        </path>
+                        <path>
+                            <groupId>org.mapstruct</groupId>
+                            <artifactId>mapstruct-processor</artifactId>
+                            <version>${mapstruct.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!--
+                        *Test classes only. Spring's failsafe convention
+                        reserves *IT for integration tests, and surefire
+                        SILENTLY SKIPS them - so naming a test *IT means
+                        writing a test that never runs. Watch the reported
+                        test count, not just the build result.
+                    -->
+                    <includes>
+                        <include>**/*Test.java</include>
+                    </includes>
+                </configuration>
+            </plugin>
+
+        </plugins>
+    </build>
+
+</project>

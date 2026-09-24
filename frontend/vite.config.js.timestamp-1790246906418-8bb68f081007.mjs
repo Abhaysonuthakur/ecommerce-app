@@ -1,0 +1,37 @@
+// vite.config.js
+import { defineConfig } from "file:///D:/project/web/higg/java/ecommerce-app/frontend/node_modules/vite/dist/node/index.js";
+import react from "file:///D:/project/web/higg/java/ecommerce-app/frontend/node_modules/@vitejs/plugin-react/dist/index.js";
+var vite_config_default = defineConfig({
+  plugins: [react()],
+  server: {
+    port: 5173,
+    proxy: {
+      "/api": {
+        target: "http://localhost:8080",
+        changeOrigin: true
+      }
+    }
+  },
+  build: {
+    outDir: "dist",
+    sourcemap: true,
+    rollupOptions: {
+      output: {
+        /*
+         * Three.js is roughly 600 kB on its own and the rest of the app is a fraction of
+         * that. Splitting it out means the vendor bundle is cached across deploys instead
+         * of being invalidated whenever application code changes - which is what would
+         * otherwise happen, because everything lands in one chunk by default.
+         */
+        manualChunks: {
+          three: ["three", "@react-three/fiber", "@react-three/drei"],
+          react: ["react", "react-dom", "react-router-dom"]
+        }
+      }
+    }
+  }
+});
+export {
+  vite_config_default as default
+};
+//# sourceMappingURL=data:application/json;base64,ewogICJ2ZXJzaW9uIjogMywKICAic291cmNlcyI6IFsidml0ZS5jb25maWcuanMiXSwKICAic291cmNlc0NvbnRlbnQiOiBbImNvbnN0IF9fdml0ZV9pbmplY3RlZF9vcmlnaW5hbF9kaXJuYW1lID0gXCJEOlxcXFxwcm9qZWN0XFxcXHdlYlxcXFxoaWdnXFxcXGphdmFcXFxcZWNvbW1lcmNlLWFwcFxcXFxmcm9udGVuZFwiO2NvbnN0IF9fdml0ZV9pbmplY3RlZF9vcmlnaW5hbF9maWxlbmFtZSA9IFwiRDpcXFxccHJvamVjdFxcXFx3ZWJcXFxcaGlnZ1xcXFxqYXZhXFxcXGVjb21tZXJjZS1hcHBcXFxcZnJvbnRlbmRcXFxcdml0ZS5jb25maWcuanNcIjtjb25zdCBfX3ZpdGVfaW5qZWN0ZWRfb3JpZ2luYWxfaW1wb3J0X21ldGFfdXJsID0gXCJmaWxlOi8vL0Q6L3Byb2plY3Qvd2ViL2hpZ2cvamF2YS9lY29tbWVyY2UtYXBwL2Zyb250ZW5kL3ZpdGUuY29uZmlnLmpzXCI7aW1wb3J0IHsgZGVmaW5lQ29uZmlnIH0gZnJvbSAndml0ZSdcbmltcG9ydCByZWFjdCBmcm9tICdAdml0ZWpzL3BsdWdpbi1yZWFjdCdcblxuLypcbiAqIFRoZSBkZXYgcHJveHkgZXhpc3RzIHNvIHRoZSBicm93c2VyIG9ubHkgZXZlciB0YWxrcyB0byBvbmUgb3JpZ2luLlxuICpcbiAqIFdpdGhvdXQgaXQgdGhlIGZyb250ZW5kIG9uIDo1MTczIHdvdWxkIGNhbGwgdGhlIEFQSSBvbiA6ODA4MCBhbmQgZXZlcnkgcmVxdWVzdCB3b3VsZCBiZVxuICogY3Jvc3Mtb3JpZ2luLiBUaGF0IGlzIHNvbHZhYmxlIHdpdGggQ09SUywgYnV0IHByb3h5aW5nIGlzIHRoZSBiZXR0ZXIgZGVmYXVsdCBoZXJlOlxuICpcbiAqICAgLSB0aGUgYnJvd3NlciBzZWVzIHNhbWUtb3JpZ2luIHJlcXVlc3RzLCBzbyB0aGVyZSBpcyBubyBwcmVmbGlnaHQgb24gZXZlcnkgd3JpdGUsXG4gKiAgICAgYW5kIG5vIGNoYW5jZSBvZiBhIENPUlMgbWlzY29uZmlndXJhdGlvbiBzaG93aW5nIHVwIG9ubHkgaW4gcHJvZHVjdGlvbjtcbiAqICAgLSB0aGUgZnJvbnRlbmQgY29kZSB1c2VzIHJlbGF0aXZlIHBhdGhzICgnL2FwaS8uLi4nKSwgc28gdGhlIHNhbWUgYnVpbGQgd29ya3MgYmVoaW5kXG4gKiAgICAgYW55IHJldmVyc2UgcHJveHkgd2l0aCBubyByZWJ1aWxkO1xuICogICAtIGNvb2tpZXMgYW5kIHRoZSBBdXRob3JpemF0aW9uIGhlYWRlciBiZWhhdmUgaWRlbnRpY2FsbHkgdG8gcHJvZHVjdGlvbi5cbiAqXG4gKiBgY2hhbmdlT3JpZ2luYCByZXdyaXRlcyB0aGUgSG9zdCBoZWFkZXIgdG8gdGhlIHRhcmdldC4gU3ByaW5nIEJvb3QgZG9lcyBub3QgY2FyZSwgYnV0XG4gKiBsZWF2aW5nIGl0IG9mZiBjYXVzZXMgY29uZnVzaW9uIHdpdGggdmlydHVhbC1ob3N0ZWQgc2V0dXBzIGFuZCBjb3N0cyBub3RoaW5nIHRvIHNldC5cbiAqL1xuZXhwb3J0IGRlZmF1bHQgZGVmaW5lQ29uZmlnKHtcbiAgcGx1Z2luczogW3JlYWN0KCldLFxuICBzZXJ2ZXI6IHtcbiAgICBwb3J0OiA1MTczLFxuICAgIHByb3h5OiB7XG4gICAgICAnL2FwaSc6IHtcbiAgICAgICAgdGFyZ2V0OiAnaHR0cDovL2xvY2FsaG9zdDo4MDgwJyxcbiAgICAgICAgY2hhbmdlT3JpZ2luOiB0cnVlLFxuICAgICAgfSxcbiAgICB9LFxuICB9LFxuICBidWlsZDoge1xuICAgIG91dERpcjogJ2Rpc3QnLFxuICAgIHNvdXJjZW1hcDogdHJ1ZSxcbiAgICByb2xsdXBPcHRpb25zOiB7XG4gICAgICBvdXRwdXQ6IHtcbiAgICAgICAgLypcbiAgICAgICAgICogVGhyZWUuanMgaXMgcm91Z2hseSA2MDAga0Igb24gaXRzIG93biBhbmQgdGhlIHJlc3Qgb2YgdGhlIGFwcCBpcyBhIGZyYWN0aW9uIG9mXG4gICAgICAgICAqIHRoYXQuIFNwbGl0dGluZyBpdCBvdXQgbWVhbnMgdGhlIHZlbmRvciBidW5kbGUgaXMgY2FjaGVkIGFjcm9zcyBkZXBsb3lzIGluc3RlYWRcbiAgICAgICAgICogb2YgYmVpbmcgaW52YWxpZGF0ZWQgd2hlbmV2ZXIgYXBwbGljYXRpb24gY29kZSBjaGFuZ2VzIC0gd2hpY2ggaXMgd2hhdCB3b3VsZFxuICAgICAgICAgKiBvdGhlcndpc2UgaGFwcGVuLCBiZWNhdXNlIGV2ZXJ5dGhpbmcgbGFuZHMgaW4gb25lIGNodW5rIGJ5IGRlZmF1bHQuXG4gICAgICAgICAqL1xuICAgICAgICBtYW51YWxDaHVua3M6IHtcbiAgICAgICAgICB0aHJlZTogWyd0aHJlZScsICdAcmVhY3QtdGhyZWUvZmliZXInLCAnQHJlYWN0LXRocmVlL2RyZWknXSxcbiAgICAgICAgICByZWFjdDogWydyZWFjdCcsICdyZWFjdC1kb20nLCAncmVhY3Qtcm91dGVyLWRvbSddLFxuICAgICAgICB9LFxuICAgICAgfSxcbiAgICB9LFxuICB9LFxufSlcbiJdLAogICJtYXBwaW5ncyI6ICI7QUFBNlUsU0FBUyxvQkFBb0I7QUFDMVcsT0FBTyxXQUFXO0FBaUJsQixJQUFPLHNCQUFRLGFBQWE7QUFBQSxFQUMxQixTQUFTLENBQUMsTUFBTSxDQUFDO0FBQUEsRUFDakIsUUFBUTtBQUFBLElBQ04sTUFBTTtBQUFBLElBQ04sT0FBTztBQUFBLE1BQ0wsUUFBUTtBQUFBLFFBQ04sUUFBUTtBQUFBLFFBQ1IsY0FBYztBQUFBLE1BQ2hCO0FBQUEsSUFDRjtBQUFBLEVBQ0Y7QUFBQSxFQUNBLE9BQU87QUFBQSxJQUNMLFFBQVE7QUFBQSxJQUNSLFdBQVc7QUFBQSxJQUNYLGVBQWU7QUFBQSxNQUNiLFFBQVE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQSxRQU9OLGNBQWM7QUFBQSxVQUNaLE9BQU8sQ0FBQyxTQUFTLHNCQUFzQixtQkFBbUI7QUFBQSxVQUMxRCxPQUFPLENBQUMsU0FBUyxhQUFhLGtCQUFrQjtBQUFBLFFBQ2xEO0FBQUEsTUFDRjtBQUFBLElBQ0Y7QUFBQSxFQUNGO0FBQ0YsQ0FBQzsiLAogICJuYW1lcyI6IFtdCn0K

@@ -1,0 +1,172 @@
+# =============================================================================
+#  Test profile - H2 in MySQL compatibility mode
+# =============================================================================
+#
+# WHY THIS FILE EXISTS AT ALL
+#
+# The tests must run without a MySQL server, on any machine, in CI - so they use
+# H2. But `spring.profiles.active=test` is not enough on its own: a test class
+# that takes a slice of the context still reads `application.yml`, and a wrong
+# `spring.datasource.url` there means the slice tries to reach MySQL and fails
+# with a connection error that looks like a code problem.
+#
+# Everything a test must not inherit is overridden here, explicitly.
+#
+# =============================================================================
+#  THE CRITICAL CAVEAT - READ THIS BEFORE TRUSTING A GREEN BUILD
+# =============================================================================
+#
+# H2 IS NOT MYSQL. It is an approximation, and it is wrong in exactly the places
+# this schema cares about most:
+#
+#   1. H2 does NOT enforce MySQL's CHECK constraints. A probe inserting
+#      stock = -5 into a column with CHECK (stock >= 0) succeeds under H2 and
+#      fails under MySQL. So H2 cannot prove the schema.
+#
+#   2. INT UNSIGNED is not a type H2 has. A negative value that MySQL would
+#      reject at the storage layer is stored happily here.
+#
+#   3. COLLATION differs. The real schema uses utf8mb4_0900_ai_ci, which makes
+#      `'ADA@EXAMPLE.COM' = 'ada@example.com'` true at the database level. H2's
+#      default is case-sensitive, so a query relying on the collation passes
+#      here only because the repository methods use `lower(...)` explicitly.
+#
+#   4. `ON DELETE RESTRICT` semantics are not reproduced.
+#
+# The division of labour, therefore:
+#
+#   H2 tests (this profile)          -> prove the JPA MAPPINGS and the QUERY
+#                                       methods: that a JPQL string parses, that
+#                                       a fetch join initialises what it claims
+#                                       to, that a derived query name resolves,
+#                                       that cascade and orphanRemoval work.
+#
+#   db/constraint-test.sql (MySQL)   -> proves the SCHEMA: CHECK constraints,
+#                                       UNSIGNED, NOT NULL, UNIQUE, FK RESTRICT.
+#
+#   db/smoke-test.mjs (live HTTP)    -> proves the BEHAVIOUR: status codes,
+#                                       transactions, the state machine.
+#
+# All three are needed. None substitutes for another. A green `mvn test` with a
+# broken schema is a real and common outcome, which is why the constraint probes
+# exist as a separate suite.
+#
+# =============================================================================
+
+spring:
+  datasource:
+    # MODE=MySQL makes H2 accept MySQL-ish DDL and function names, so a handful
+    # of generated statements work unchanged. It does not make H2 MySQL.
+    url: jdbc:h2:mem:ecommerce_test;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+
+  jpa:
+    hibernate:
+      # create-drop, NOT validate, and this is the one place the production
+      # setting is deliberately inverted.
+      #
+      # Production uses `validate` so an entity that disagrees with the schema
+      # fails fast. But the schema is MySQL DDL (`db/schema.sql`) and H2 cannot
+      # parse all of it - so under test there is nothing to validate against and
+      # Hibernate must generate from the entities instead.
+      #
+      # The consequence is worth being honest about: a test using this profile
+      # proves the entities are self-consistent, not that they match the real
+      # database. If an @Column were renamed, H2 would create the new name and
+      # every test would pass - while production refused to start. That
+      # mismatch is caught by running the application at all, which is why
+      # `ddl-auto: validate` in application.yml is the load-bearing check.
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        # ------------------------------------------------------------------
+        #  THE DIALECT MUST BE EXPLICITLY NULLED HERE. DO NOT DELETE THIS.
+        # ------------------------------------------------------------------
+        #
+        # application.yml sets:
+        #
+        #     spring.jpa.properties.hibernate.dialect: org.hibernate.dialect.MySQLDialect
+        #
+        # `spring.jpa.properties.*` is a MAP, not a set of scalar properties.
+        # Spring Boot merges maps key-by-key across profiles, and a higher
+        # profile can only ADD or OVERRIDE entries - it has no way to say
+        # "ignore the parent's entry". Writing `dialect:` with no value here
+        # does not remove it; it just supplies null, which Hibernate falls back
+        # on. The key survives.
+        #
+        # The measured symptom of leaving it alone is this, on every single
+        # table, with `MODE=MySQL` already set on the H2 URL:
+        #
+        #     Syntax error in SQL statement "create table cart_items (...)
+        #     engine[*]=InnoDB"; expected "identifier"
+        #
+        # Every CREATE TABLE fails, every ALTER TABLE then fails with
+        # "Table ... not found", the schema ends up empty, and all 26 tests
+        # error out during context startup with no assertion anywhere in the
+        # stack trace - which reads like a broken test, not a broken config.
+        #
+        # Setting an empty string is the documented way to cancel the parent
+        # value: Spring's relaxed binding treats a blank String as "no value
+        # set", so the map entry collapses and Hibernate 6 auto-detects H2
+        # from the JDBC URL. If this line is ever removed, the whole
+        # @DataJpaTest layer dies again.
+        dialect: ""
+        format_sql: false
+    # Required, and it is a correctness setting rather than a performance one:
+    # with open-in-view enabled, a LAZY association can be initialised during
+    # JSON serialisation, so a lazy-loading bug is invisible in tests and
+    # appears only in production. Turning it off here means a test that touches
+    # a lazy field outside a transaction fails in the test suite - which is
+    # where I want to learn about it.
+    open-in-view: false
+    show-sql: false
+
+  # No SQL initialisation: the schema comes from the entities (above).
+  sql:
+    init:
+      mode: never
+
+# Swagger must not scan during tests: it walks the controllers and their
+# annotations at startup, which costs time in every context that loads.
+#
+# NOTE THE INDENTATION. springdoc is a ROOT-LEVEL key, a sibling of `spring:`
+# and of `app:` - not a child of `spring:`. Nesting it under `spring:` is the
+# intuitive mistake (it *feels* like Spring configuration) and it fails
+# silently: the properties bind to nothing, springdoc keeps scanning, and no
+# warning is logged. The test pass count is unaffected; only the runtime is.
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+# The DataSeeder is an ApplicationRunner, so it runs in any full-context test.
+# A test that needs a clean database must not have demo rows appear underneath
+# it - so it is disabled here and each test creates exactly the rows it needs.
+# @WebMvcTest slices do not run runners at all, but @SpringBootTest does.
+app:
+  seed:
+    enabled: false
+
+  jwt:
+    # A fixed test secret. Never used outside the test profile, and it is
+    # deliberately not the value in .env.example - a test that accidentally
+    # depended on the development secret would be a test that cannot run in CI.
+    secret: test-only-jwt-secret-key-long-enough-for-hs256-signing
+    expiration-ms: 3600000
+    issuer: https://test.ecommerce.local
+
+logging:
+  level:
+    # Warnings and above only. A test run in which every Hibernate statement is
+    # logged is a test run nobody reads, and the one line that mattered is
+    # buried. Individual tests that want SQL can enable it with @Sql or a
+    # property override.
+    root: WARN
+    com.shop.ecommerce: INFO
+    # Hibernate's DDL generation is noisy even at INFO; the entity mappings are
+    # asserted by the tests themselves rather than read from a log.
+    org.hibernate.tool.schema: WARN
+    org.hibernate.orm.deprecation: ERROR
